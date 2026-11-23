@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#030a1c">
+  <title>NOVA</title>
+  <link rel="stylesheet" href="style.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.15/dist/face-api.js"></script>
+  <script defer src="app.js"></script>
+</head>
+<body>
+  <div class="grid-bg"></div>
+
+  <header class="hud-top">
+    <div class="hud-line"><span>NOVA</span><span id="clock">--:--</span><span id="facestat">CAMÉRA —</span></div>
+    <div id="status" class="status">EN VEILLE</div>
+  </header>
+
+  <main id="stage">
+    <canvas id="orb"></canvas>
+    <img id="avatar" alt="">
+    <div id="cards"></div>
+  </main>
+
+  <div id="subtitle" class="subtitle"></div>
+  <div id="heard" class="heard"></div>
+
+  <footer class="hud-bottom">
+    <form id="askform" autocomplete="off">
+      <input id="ask" type="text" placeholder="Écrire à NOVA…" enterkeyhint="send">
+    </form>
+    <button id="mic" class="round" title="Parler" aria-label="Parler">
+      <svg viewBox="0 0 24 24"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-2.08A7 7 0 0 0 19 12h-2Z"/></svg>
+    </button>
+    <button id="gear" class="round" title="Réglages" aria-label="Réglages">
+      <svg viewBox="0 0 24 24"><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.7 7.7 0 0 0-1.7-1L15 3.3h-4l-.4 2.6a7.7 7.7 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1a7.7 7.7 0 0 0 1.7 1l.4 2.6h4l.4-2.6a7.7 7.7 0 0 0 1.7-1l2.5 1 2-3.5L19.4 13ZM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7Z" transform="translate(-1 0)"/></svg>
+    </button>
+  </footer>
+
+  <video id="cam" playsinline muted autoplay></video>
+
+  <!-- Écran d'activation (un toucher est nécessaire pour le micro, la caméra et le son) -->
+  <div id="boot" class="overlay">
+    <div class="boot-box">
+      <div class="boot-title">NOVA</div>
+      <div class="boot-sub">Assistant personnel · voix · reconnaissance faciale</div>
+      <button id="start" class="primary">Activer NOVA</button>
+      <p class="hint">Autorisez le micro et la caméra. Ensuite, dites simplement « Bonjour ».</p>
+    </div>
+  </div>
+
+  <!-- Enregistrement du visage -->
+  <div id="enroll" class="overlay hidden">
+    <div class="enroll-box">
+      <div class="enroll-ring"><video id="enrollcam" playsinline muted autoplay></video></div>
+      <div id="enrollmsg">Regardez la caméra…</div>
+      <div class="bar"><div id="enrollbar"></div></div>
+      <button id="enrollcancel" class="ghost">Annuler</button>
+    </div>
+  </div>
+
+  <!-- Réglages -->
+  <aside id="panel" class="panel hidden">
+    <div class="panel-head"><span>RÉGLAGES</span><button id="close" class="ghost">Fermer</button></div>
+
+    <section>
+      <h3>Identité</h3>
+      <label>Votre prénom<input id="s-name" type="text" placeholder="ex. Yasmine"></label>
+      <label>Comment NOVA vous appelle<input id="s-hon" type="text" placeholder="ex. Madame, Monsieur, Chef…"></label>
+      <div class="row">
+        <button id="enrollbtn" class="primary">Enregistrer mon visage</button>
+        <button id="forget" class="ghost">Oublier</button>
+      </div>
+      <p id="face-info" class="hint"></p>
+      <label class="check"><input id="s-auto" type="checkbox"> Briefing automatique quand je suis reconnu(e) (1 fois par jour)</label>
+      <label class="check"><input id="s-private" type="checkbox" checked> Ne pas lire mon agenda à un visage inconnu</label>
+    </section>
+
+    <section>
+      <h3>Météo</h3>
+      <label>Ville<input id="s-city" type="text" placeholder="Vide = ma position"></label>
+    </section>
+
+    <section>
+      <h3>Voix &amp; intelligence</h3>
+      <label>Clé API OpenAI (optionnelle)<input id="s-key" type="password" placeholder="sk-…" autocomplete="off"></label>
+      <p class="hint">Avec une clé : voix neuronale fluide, briefing rédigé par l'IA et conversation libre. La clé reste uniquement dans ce navigateur et part seulement vers api.openai.com. Mettez une limite de dépenses sur votre compte OpenAI.</p>
+      <label>Voix neuronale
+        <select id="s-voice">
+          <option value="onyx">Onyx — grave, posée</option>
+          <option value="ash">Ash — chaleureuse</option>
+          <option value="echo">Echo — claire</option>
+          <option value="sage">Sage — douce</option>
+          <option value="coral">Coral — féminine, vive</option>
+          <option value="nova">Nova — féminine, calme</option>
+        </select>
+      </label>
+      <button id="testvoice" class="ghost">Tester la voix</button>
+    </section>
+
+    <section>
+      <h3>Agenda</h3>
+      <div class="row">
+        <input id="ev-date" type="date">
+        <input id="ev-time" type="time">
+      </div>
+      <div class="row">
+        <input id="ev-title" type="text" placeholder="Rendez-vous, tâche…">
+        <button id="ev-add" class="primary">Ajouter</button>
+      </div>
+      <ul id="ev-list"></ul>
+      <p class="hint">Vous pouvez aussi dire : « Nova, ajoute dentiste demain à 15 h à mon agenda ».</p>
+    </section>
+  </aside>
+
+  <div id="toast" class="toast"></div>
+</body>
+</html>
