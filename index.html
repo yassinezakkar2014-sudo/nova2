@@ -87,9 +87,13 @@
 
     <section>
       <h3>Voix &amp; intelligence</h3>
-      <label>Clé API OpenAI (optionnelle)<input id="s-key" type="password" placeholder="sk-…" autocomplete="off"></label>
-      <p class="hint">Avec une clé : voix neuronale fluide, briefing rédigé par l'IA et conversation libre. La clé reste uniquement dans ce navigateur et part seulement vers api.openai.com. Mettez une limite de dépenses sur votre compte OpenAI.</p>
-      <label>Voix neuronale
+      <label>Voix de l'appareil (gratuite)
+        <select id="s-bvoice"></select>
+      </label>
+      <p class="hint">Sur iPad / iPhone, pour une voix beaucoup plus naturelle : Réglages → Accessibilité → Contenu énoncé → Voix → Français → téléchargez une voix « améliorée » ou « premium » (ex. Thomas, Audrey), puis rechargez NOVA et choisissez-la ici.</p>
+      <label>Clé IA (optionnelle)<input id="s-key" type="password" placeholder="gsk_… (Groq, gratuite) ou sk-… (OpenAI)" autocomplete="off"></label>
+      <p class="hint"><b>Gratuit :</b> créez une clé sur console.groq.com/keys (compte gratuit) → conversation libre et briefing rédigé par l'IA, avec la voix de l'appareil.<br><b>Payant :</b> une clé OpenAI ajoute en plus la voix neuronale ci-dessous.<br>La clé reste uniquement dans ce navigateur.</p>
+      <label>Voix neuronale (clé OpenAI seulement)
         <select id="s-voice">
           <option value="onyx">Onyx — grave, posée</option>
           <option value="ash">Ash — chaleureuse</option>

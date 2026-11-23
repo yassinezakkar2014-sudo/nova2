@@ -13,7 +13,7 @@ const store = {
   del(k) { try { localStorage.removeItem("nova." + k); } catch { /* */ } },
 };
 const settings = Object.assign(
-  { name: "", hon: "", city: "", key: "", voice: "onyx", autoBrief: false, private: true },
+  { name: "", hon: "", city: "", key: "", voice: "onyx", browserVoice: "", autoBrief: false, private: true },
   store.get("settings", {})
 );
 const saveSettings = () => store.set("settings", settings);
@@ -25,7 +25,10 @@ const isoDay = (d = new Date()) => d.toLocaleDateString("en-CA");
 const addDays = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return d; };
 const num = (x) => Number(x).toLocaleString("fr-FR", { maximumFractionDigits: 1 });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const hasKey = () => settings.key.trim().startsWith("sk-");
+// Clé IA : Groq (gsk_…, gratuite) pour l'intelligence, ou OpenAI (sk-…, payante) pour l'intelligence + la voix neuronale.
+const provider = () => { const k = settings.key.trim(); return k.startsWith("gsk_") ? "groq" : k.startsWith("sk-") ? "openai" : null; };
+const hasKey = () => provider() !== null;
+const hasNeural = () => provider() === "openai";
 const who = () => settings.name.trim();
 const hon = () => settings.hon.trim() || settings.name.trim();
 
@@ -246,11 +249,11 @@ async function playBuffer(ab, token) {
 function pickVoice() {
   if (!("speechSynthesis" in window)) return null;
   const vs = speechSynthesis.getVoices().filter((v) => /^fr/i.test(v.lang));
+  if (settings.browserVoice) { const v = vs.find((x) => x.name === settings.browserVoice); if (v) return v; }
   const prefs = [/premium|enhanced|amélior|natural|neural|online/i, /google/i, /thomas|daniel|audrey|amélie|aurélie|marie|denise|henri|eloise/i];
   for (const p of prefs) { const v = vs.find((x) => p.test(x.name) && /fr[-_]FR/i.test(x.lang)) || vs.find((x) => p.test(x.name)); if (v) return v; }
   return vs.find((v) => /fr[-_]FR/i.test(v.lang)) || vs[0] || null;
 }
-if ("speechSynthesis" in window) speechSynthesis.onvoiceschanged = () => speechSynthesis.getVoices();
 function speakBrowser(text, token) {
   return new Promise((res) => {
     if (!("speechSynthesis" in window) || token !== speakToken) return res();
@@ -281,7 +284,7 @@ async function speakSegments(segs) {
   segs = segs.filter((s) => s && s.text && s.text.trim());
   pauseListening();
   setState("speaking");
-  const neural = hasKey() && !neuralFailed;
+  const neural = hasNeural() && !neuralFailed;
   const cache = [];
   const get = (i) => {
     if (!neural || i >= segs.length) return null;
@@ -463,16 +466,33 @@ function parseAgenda(text) {
 }
 
 /* ---------------------------------------------------------------- IA (optionnelle) */
+// Groq retire régulièrement des modèles : on choisit le meilleur modèle disponible sur le compte.
+const GROQ_PREFERRED = ["llama-3.3-70b-versatile", "moonshotai/kimi-k2-instruct-0905", "moonshotai/kimi-k2-instruct", "openai/gpt-oss-120b", "meta-llama/llama-4-maverick-17b-128e-instruct", "qwen/qwen3-32b", "openai/gpt-oss-20b", "llama-3.1-8b-instant"];
+let groqModel = null;
+async function pickGroqModel() {
+  if (groqModel) return groqModel;
+  try {
+    const r = await fetch("https://api.groq.com/openai/v1/models", { headers: { Authorization: "Bearer " + settings.key.trim() } });
+    const ids = (await r.json()).data.filter((m) => m.active !== false).map((m) => m.id)
+      .filter((id) => !/whisper|guard|tts|orpheus|playai|distil|compound/i.test(id));
+    groqModel = GROQ_PREFERRED.find((m) => ids.includes(m)) || ids.sort()[0] || GROQ_PREFERRED[0];
+  } catch { groqModel = GROQ_PREFERRED[0]; }
+  return groqModel;
+}
 async function openai(body, ms = 15000) {
+  const groq = provider() === "groq";
+  const model = groq ? await pickGroqModel() : "gpt-4o-mini";
+  const name = groq ? "Groq" : "OpenAI";
   const ctl = new AbortController(); const id = setTimeout(() => ctl.abort(), ms);
   try {
-    const r = await fetch("https://api.openai.com/v1/chat/completions", {
+    const r = await fetch(groq ? "https://api.groq.com/openai/v1/chat/completions" : "https://api.openai.com/v1/chat/completions", {
       method: "POST", signal: ctl.signal,
       headers: { Authorization: "Bearer " + settings.key.trim(), "Content-Type": "application/json" },
-      body: JSON.stringify(Object.assign({ model: "gpt-4o-mini", temperature: 0.8 }, body)),
+      body: JSON.stringify(Object.assign({ model, temperature: 0.8 }, body)),
     });
-    if (r.status === 401) throw new Error("Clé OpenAI refusée");
-    if (!r.ok) throw new Error("OpenAI : erreur " + r.status);
+    if (r.status === 401) throw new Error(`Clé ${name} refusée`);
+    if (r.status === 429) throw new Error(`${name} : trop de demandes, réessayez dans une minute`);
+    if (!r.ok) throw new Error(`${name} : erreur ${r.status}`);
     const j = await r.json();
     return j.choices[0].message.content;
   } finally { clearTimeout(id); }
@@ -502,7 +522,7 @@ async function aiAnswer(q) {
   if (wxCache) ctx += ` Météo à ${wxCache.place} : ${num(wxCache.temp)} °C, ${wxCache.desc}, min ${num(wxCache.min)}, max ${num(wxCache.max)}, pluie ${wxCache.rain} %.`;
   history.push({ role: "user", content: q });
   while (history.length > 14) history.shift();
-  const reply = await openai({ max_tokens: 350, messages: [{ role: "system", content: PERSONA + "\n" + ctx }, ...history] });
+  const reply = await openai({ max_tokens: 400, messages: [{ role: "system", content: PERSONA + "\n" + ctx }, ...history] });
   history.push({ role: "assistant", content: reply });
   return reply.replace(/[*#_`]/g, "");
 }
@@ -601,7 +621,7 @@ async function answer(q) {
     else if (/quel jour|quelle date|on est quel|date d'aujourd'hui/.test(n)) text = `Nous sommes ${longDate()}.`;
     else if (/^merci/.test(n)) text = `Avec plaisir${h ? ", " + h : ""}.`;
     else if (/qui es[- ]tu|tu es qui|presente[- ]toi/.test(n)) text = "Je suis NOVA, votre assistant personnel. Dites bonjour pour votre briefing, ou demandez-moi la météo, l'heure ou votre agenda.";
-    else text = "Pour converser librement, ajoutez une clé OpenAI dans mes réglages. En attendant, je peux vous donner l'heure, la météo et votre agenda.";
+    else text = "Pour converser librement, ajoutez une clé Groq gratuite dans mes réglages. En attendant, je peux vous donner l'heure, la météo et votre agenda.";
     await speakSegments([{ text }]);
   } finally {
     busy = false;
@@ -757,7 +777,18 @@ function bindSettings() {
   };
   bind("#s-name", "name"); bind("#s-hon", "hon");
   bind("#s-city", "city", "value", () => { wxCache = null; store.del("place"); });
-  bind("#s-key", "key", "value", () => { neuralFailed = false; });
+  bind("#s-key", "key", "value", () => { neuralFailed = false; groqModel = null; });
+  const bv = $("#s-bvoice");
+  const fillVoices = () => {
+    if (!("speechSynthesis" in window)) return;
+    const vs = speechSynthesis.getVoices().filter((v) => /^fr/i.test(v.lang));
+    bv.innerHTML = `<option value="">Automatique (la meilleure trouvée)</option>` +
+      vs.map((v) => `<option value="${esc(v.name)}">${esc(v.name)} · ${esc(v.lang)}</option>`).join("");
+    bv.value = vs.some((v) => v.name === settings.browserVoice) ? settings.browserVoice : "";
+  };
+  fillVoices();
+  if ("speechSynthesis" in window) speechSynthesis.addEventListener("voiceschanged", fillVoices);
+  bv.addEventListener("change", () => { settings.browserVoice = bv.value; saveSettings(); });
   bind("#s-voice", "voice", "value", () => { neuralFailed = false; });
   bind("#s-auto", "autoBrief", "checked"); bind("#s-private", "private", "checked");
   $("#ev-date").value = isoDay();
