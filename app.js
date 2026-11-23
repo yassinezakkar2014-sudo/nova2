@@ -231,9 +231,9 @@ async function ttsFetch(text) {
 }
 async function ttsGemini(text) {
   const model = await geminiModel("tts");
-  const r = await fetch(`${GEM}/models/${model}:generateContent?key=${encodeURIComponent(settings.gkey.trim())}`, {
+  const r = await fetch(`${GEM}/models/${model}:generateContent`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "x-goog-api-key": settings.gkey.trim() },
     body: JSON.stringify({
       contents: [{ parts: [{ text: `Dis en français, d'une voix calme, posée, chaleureuse et assurée, comme un majordome attentionné, avec un rythme naturel et fluide : ${text}` }] }],
       generationConfig: { responseModalities: ["AUDIO"], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: settings.gvoice } } } },
@@ -420,9 +420,9 @@ const WMO = {
   80: ["averses", "🌦"], 81: ["averses", "🌧"], 82: ["violentes averses", "⛈"], 85: ["averses de neige", "🌨"], 86: ["averses de neige", "🌨"],
   95: ["orages", "⛈"], 96: ["orages et grêle", "⛈"], 99: ["orages et grêle", "⛈"],
 };
-async function getJSON(url, ms = 8000) {
+async function getJSON(url, ms = 8000, headers = {}) {
   const ctl = new AbortController(); const id = setTimeout(() => ctl.abort(), ms);
-  try { const r = await fetch(url, { signal: ctl.signal }); if (!r.ok) throw new Error(r.status); return await r.json(); }
+  try { const r = await fetch(url, { signal: ctl.signal, headers }); if (!r.ok) throw new Error(r.status); return await r.json(); }
   finally { clearTimeout(id); }
 }
 async function getPlace() {
@@ -528,7 +528,7 @@ async function geminiModel(kind) {
   if (gemCache[kind]) return gemCache[kind];
   let names = [];
   try {
-    const j = await getJSON(`${GEM}/models?pageSize=200&key=${encodeURIComponent(settings.gkey.trim())}`);
+    const j = await getJSON(`${GEM}/models?pageSize=200`, 8000, { "x-goog-api-key": settings.gkey.trim() });
     names = j.models.filter((m) => (m.supportedGenerationMethods || []).includes("generateContent")).map((m) => m.name.replace("models/", ""));
   } catch { /* liste indisponible : modèles par défaut */ }
   const ver = (n) => parseFloat((n.match(/gemini-(\d+(?:\.\d+)?)/) || [])[1] || 0);
@@ -550,8 +550,8 @@ async function geminiChat(body, ms) {
   if (/2\.5-flash/.test(model)) gc.thinkingConfig = { thinkingBudget: 0 }; // réponse immédiate
   const ctl = new AbortController(); const id = setTimeout(() => ctl.abort(), ms);
   try {
-    const r = await fetch(`${GEM}/models/${model}:generateContent?key=${encodeURIComponent(settings.gkey.trim())}`, {
-      method: "POST", signal: ctl.signal, headers: { "Content-Type": "application/json" },
+    const r = await fetch(`${GEM}/models/${model}:generateContent`, {
+      method: "POST", signal: ctl.signal, headers: { "Content-Type": "application/json", "x-goog-api-key": settings.gkey.trim() },
       body: JSON.stringify({ systemInstruction: { parts: [{ text: system }] }, contents, generationConfig: gc }),
     });
     if (r.status === 429) throw new Error("Gemini : quota gratuit atteint, réessayez dans une minute");
