@@ -87,12 +87,26 @@
 
     <section>
       <h3>Voix &amp; intelligence</h3>
+      <label>Clé Google Gemini (gratuite) — voix naturelle + intelligence<input id="s-gkey" type="password" placeholder="AIza…" autocomplete="off"></label>
+      <p class="hint"><b>Recommandé :</b> créez une clé gratuite sur aistudio.google.com/apikey (compte Google). NOVA aura une voix neuronale fluide en français et pourra converser. La clé reste uniquement dans ce navigateur.</p>
+      <label>Voix Gemini
+        <select id="s-gvoice">
+          <option value="Charon">Charon — grave, posée (homme)</option>
+          <option value="Orus">Orus — ferme, assurée (homme)</option>
+          <option value="Iapetus">Iapetus — claire (homme)</option>
+          <option value="Algieba">Algieba — douce (homme)</option>
+          <option value="Sulafat">Sulafat — chaleureuse (femme)</option>
+          <option value="Kore">Kore — ferme (femme)</option>
+          <option value="Aoede">Aoede — légère (femme)</option>
+          <option value="Puck">Puck — enjouée</option>
+        </select>
+      </label>
       <label>Voix de l'appareil (gratuite)
         <select id="s-bvoice"></select>
       </label>
       <p class="hint">Sur iPad / iPhone, pour une voix beaucoup plus naturelle : Réglages → Accessibilité → Contenu énoncé → Voix → Français → téléchargez une voix « améliorée » ou « premium » (ex. Thomas, Audrey), puis rechargez NOVA et choisissez-la ici.</p>
-      <label>Clé IA (optionnelle)<input id="s-key" type="password" placeholder="gsk_… (Groq, gratuite) ou sk-… (OpenAI)" autocomplete="off"></label>
-      <p class="hint"><b>Gratuit :</b> créez une clé sur console.groq.com/keys (compte gratuit) → conversation libre et briefing rédigé par l'IA, avec la voix de l'appareil.<br><b>Payant :</b> une clé OpenAI ajoute en plus la voix neuronale ci-dessous.<br>La clé reste uniquement dans ce navigateur.</p>
+      <label>Autre clé IA (optionnelle)<input id="s-key" type="password" placeholder="gsk_… (Groq) ou sk-… (OpenAI)" autocomplete="off"></label>
+      <p class="hint"><b>Groq (gratuit) :</b> console.groq.com/keys → intelligence plus rapide ; la voix reste celle de Gemini ou de l'appareil.<br><b>Payant :</b> une clé OpenAI ajoute en plus la voix neuronale ci-dessous.<br>La clé reste uniquement dans ce navigateur.</p>
       <label>Voix neuronale (clé OpenAI seulement)
         <select id="s-voice">
           <option value="onyx">Onyx — grave, posée</option>

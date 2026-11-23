@@ -13,7 +13,7 @@ const store = {
   del(k) { try { localStorage.removeItem("nova." + k); } catch { /* */ } },
 };
 const settings = Object.assign(
-  { name: "", hon: "", city: "", key: "", voice: "onyx", browserVoice: "", autoBrief: false, private: true },
+  { name: "", hon: "", city: "", key: "", voice: "onyx", gkey: "", gvoice: "Charon", browserVoice: "", autoBrief: false, private: true },
   store.get("settings", {})
 );
 const saveSettings = () => store.set("settings", settings);
@@ -27,8 +27,12 @@ const num = (x) => Number(x).toLocaleString("fr-FR", { maximumFractionDigits: 1 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // Clé IA : Groq (gsk_…, gratuite) pour l'intelligence, ou OpenAI (sk-…, payante) pour l'intelligence + la voix neuronale.
 const provider = () => { const k = settings.key.trim(); return k.startsWith("gsk_") ? "groq" : k.startsWith("sk-") ? "openai" : null; };
-const hasKey = () => provider() !== null;
-const hasNeural = () => provider() === "openai";
+// Clé Google Gemini (AIza…, gratuite) : voix neuronale naturelle en français + intelligence.
+const hasGemini = () => settings.gkey.trim().length > 20;
+const hasKey = () => provider() !== null || hasGemini();
+const voiceEngine = () => (provider() === "openai" ? "openai" : hasGemini() ? "gemini" : null);
+const hasNeural = () => voiceEngine() !== null;
+const GEM = "https://generativelanguage.googleapis.com/v1beta";
 const who = () => settings.name.trim();
 const hon = () => settings.hon.trim() || settings.name.trim();
 
@@ -87,7 +91,7 @@ function resize() {
 addEventListener("resize", resize);
 resize();
 
-const rings = Array.from({ length: 9 }, (_, i) => ({
+const rings = Array.from({ length: 15 }, (_, i) => ({
   ph: Math.random() * 6.28, sp: 0.25 + Math.random() * 0.5,
   f1: 2 + (i % 3), f2: 3 + Math.floor(Math.random() * 4),
   a1: 0.03 + Math.random() * 0.04, a2: 0.02 + Math.random() * 0.03,
@@ -141,10 +145,10 @@ function frame(ms) {
       const y = cy + x0 * Math.sin(rot) + y0 * Math.cos(rot);
       k ? g.lineTo(x, y) : g.moveTo(x, y);
     }
-    g.strokeStyle = `hsla(${ring.hue},100%,60%,${0.10 + level * 0.15})`;
-    g.lineWidth = 6 + level * 8; g.stroke();
-    g.strokeStyle = `hsla(${ring.hue},100%,75%,${0.45 + level * 0.4})`;
-    g.lineWidth = 1.1 + level * 1.4; g.stroke();
+    g.strokeStyle = `hsla(${ring.hue},100%,60%,${0.06 + level * 0.12})`;
+    g.lineWidth = 5 + level * 7; g.stroke();
+    g.strokeStyle = `hsla(${ring.hue},100%,78%,${0.35 + level * 0.45})`;
+    g.lineWidth = 0.9 + level * 1.2; g.stroke();
   }
 
   for (const p of sparks) {
@@ -219,7 +223,41 @@ function unlockSynth() {
   try { const u = new SpeechSynthesisUtterance(" "); u.volume = 0; speechSynthesis.speak(u); } catch { /* */ }
 }
 
+/** Renvoie un AudioBuffer prêt à jouer (voix OpenAI ou Gemini). */
 async function ttsFetch(text) {
+  ensureAudio();
+  if (voiceEngine() === "openai") return actx.decodeAudioData(await ttsOpenAI(text));
+  return ttsGemini(text);
+}
+async function ttsGemini(text) {
+  const model = await geminiModel("tts");
+  const r = await fetch(`${GEM}/models/${model}:generateContent?key=${encodeURIComponent(settings.gkey.trim())}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: `Dis en français, d'une voix calme, posée, chaleureuse et assurée, comme un majordome attentionné, avec un rythme naturel et fluide : ${text}` }] }],
+      generationConfig: { responseModalities: ["AUDIO"], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: settings.gvoice } } } },
+    }),
+  });
+  if (r.status === 429) throw new Error("Voix Gemini : quota gratuit atteint pour le moment");
+  if (r.status === 400 || r.status === 403) throw new Error("Clé Gemini refusée");
+  if (!r.ok) throw new Error("Voix Gemini : erreur " + r.status);
+  const j = await r.json();
+  const part = (j.candidates?.[0]?.content?.parts || []).find((p) => p.inlineData);
+  if (!part) throw new Error("Voix Gemini : réponse vide");
+  const rate = Number((part.inlineData.mimeType.match(/rate=(\d+)/) || [])[1] || 24000);
+  const bin = atob(part.inlineData.data);
+  const n = bin.length >> 1;
+  const buf = actx.createBuffer(1, n, rate);
+  const ch = buf.getChannelData(0);
+  for (let i = 0; i < n; i++) {
+    let v = bin.charCodeAt(2 * i) | (bin.charCodeAt(2 * i + 1) << 8);
+    if (v >= 32768) v -= 65536;
+    ch[i] = v / 32768;
+  }
+  return buf;
+}
+async function ttsOpenAI(text) {
   const r = await fetch("https://api.openai.com/v1/audio/speech", {
     method: "POST",
     headers: { Authorization: "Bearer " + settings.key.trim(), "Content-Type": "application/json" },
@@ -234,10 +272,9 @@ async function ttsFetch(text) {
   if (!r.ok) throw new Error("Voix neuronale : erreur " + r.status);
   return r.arrayBuffer();
 }
-async function playBuffer(ab, token) {
+async function playBuffer(buf, token) {
   ensureAudio();
-  const buf = await actx.decodeAudioData(ab.slice(0));
-  if (token !== speakToken) return;
+  if (!buf || token !== speakToken) return;
   return new Promise((res) => {
     const src = actx.createBufferSource();
     src.buffer = buf; src.connect(analyser);
@@ -277,35 +314,41 @@ function stopSpeaking() {
   $("#subtitle").classList.remove("show");
 }
 
-let neuralFailed = false;
+// En cas d'erreur (quota…), on passe 60 s sur la voix de l'appareil puis on réessaie.
+let neuralFailedAt = 0;
+const neuralOk = () => hasNeural() && Date.now() - neuralFailedAt > 60000;
 /** Lit une suite de segments {text, card}. Pré-charge le segment suivant pendant la lecture. */
 async function speakSegments(segs) {
   const token = ++speakToken;
-  segs = segs.filter((s) => s && s.text && s.text.trim());
   pauseListening();
-  setState("speaking");
-  const neural = hasNeural() && !neuralFailed;
+  const neural = neuralOk();
   const cache = [];
   const get = (i) => {
     if (!neural || i >= segs.length) return null;
-    if (!cache[i]) { cache[i] = ttsFetch(segs[i].text); cache[i].catch(() => {}); }
+    if (!cache[i]) {
+      cache[i] = Promise.resolve(segs[i]).then((s) => (s && s.text && s.text.trim() ? s.audio || ttsFetch(s.text) : null));
+      cache[i].catch(() => {});
+    }
     return cache[i];
   };
   get(0);
   for (let i = 0; i < segs.length; i++) {
     if (token !== speakToken) break;
-    const s = segs[i];
+    const s = await segs[i];
+    if (token !== speakToken) break;
+    if (!s || !s.text || !s.text.trim()) continue;
+    setState("speaking");
     get(i + 1);
     if (s.card) showCard(s.card, s.cardClass);
     $("#subtitle").textContent = s.text;
     $("#subtitle").classList.add("show");
     let ok = false;
-    if (neural && !neuralFailed) {
+    if (neural && neuralOk()) {
       try { await playBuffer(await get(i), token); ok = true; }
-      catch (e) { neuralFailed = true; toast(e.message + " — voix du navigateur utilisée."); }
+      catch (e) { neuralFailedAt = Date.now(); toast(e.message + " — voix de l'appareil utilisée."); }
     }
     if (!ok && token === speakToken) await speakBrowser(s.text, token);
-    if (token === speakToken) await sleep(180);
+    if (token === speakToken) await sleep(120);
   }
   if (token === speakToken) {
     $("#subtitle").classList.remove("show");
@@ -479,7 +522,47 @@ async function pickGroqModel() {
   } catch { groqModel = GROQ_PREFERRED[0]; }
   return groqModel;
 }
+const gemCache = {};
+/** Choisit le meilleur modèle Gemini disponible (Google renomme souvent ses modèles). */
+async function geminiModel(kind) {
+  if (gemCache[kind]) return gemCache[kind];
+  let names = [];
+  try {
+    const j = await getJSON(`${GEM}/models?pageSize=200&key=${encodeURIComponent(settings.gkey.trim())}`);
+    names = j.models.filter((m) => (m.supportedGenerationMethods || []).includes("generateContent")).map((m) => m.name.replace("models/", ""));
+  } catch { /* liste indisponible : modèles par défaut */ }
+  const ver = (n) => parseFloat((n.match(/gemini-(\d+(?:\.\d+)?)/) || [])[1] || 0);
+  const flash = (n) => (/flash/.test(n) ? 1 : 0), lite = (n) => (/lite/.test(n) ? 1 : 0);
+  let pick;
+  if (kind === "tts") {
+    pick = names.filter((n) => /^gemini-.*tts/.test(n)).sort((a, b) => flash(b) - flash(a) || ver(b) - ver(a))[0] || "gemini-2.5-flash-preview-tts";
+  } else {
+    pick = names.filter((n) => /^gemini-[\d.]+-flash(-lite)?(-latest|-\d+)?$/.test(n)).sort((a, b) => lite(a) - lite(b) || ver(b) - ver(a))[0] || "gemini-2.5-flash";
+  }
+  return (gemCache[kind] = pick);
+}
+async function geminiChat(body, ms) {
+  const model = await geminiModel("chat");
+  const system = body.messages.filter((m) => m.role === "system").map((m) => m.content).join("\n");
+  const contents = body.messages.filter((m) => m.role !== "system").map((m) => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] }));
+  const gc = { temperature: 0.8, maxOutputTokens: 2048 };
+  if (body.response_format) gc.responseMimeType = "application/json";
+  if (/2\.5-flash/.test(model)) gc.thinkingConfig = { thinkingBudget: 0 }; // réponse immédiate
+  const ctl = new AbortController(); const id = setTimeout(() => ctl.abort(), ms);
+  try {
+    const r = await fetch(`${GEM}/models/${model}:generateContent?key=${encodeURIComponent(settings.gkey.trim())}`, {
+      method: "POST", signal: ctl.signal, headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ systemInstruction: { parts: [{ text: system }] }, contents, generationConfig: gc }),
+    });
+    if (r.status === 429) throw new Error("Gemini : quota gratuit atteint, réessayez dans une minute");
+    if (r.status === 400 || r.status === 403) throw new Error("Clé Gemini refusée");
+    if (!r.ok) throw new Error("Gemini : erreur " + r.status);
+    const j = await r.json();
+    return (j.candidates?.[0]?.content?.parts || []).filter((p) => p.text && !p.thought).map((p) => p.text).join("").trim();
+  } finally { clearTimeout(id); }
+}
 async function openai(body, ms = 15000) {
+  if (!provider()) return geminiChat(body, ms);
   const groq = provider() === "groq";
   const model = groq ? await pickGroqModel() : "gpt-4o-mini";
   const name = groq ? "Groq" : "OpenAI";
@@ -503,7 +586,7 @@ async function aiBriefing(data) {
   const out = await openai({
     response_format: { type: "json_object" },
     messages: [
-      { role: "system", content: PERSONA + " Tu rédiges le briefing du matin. Réponds uniquement en JSON : {\"intro\":\"…\",\"meteo\":\"…\",\"agenda\":\"…\",\"conclusion\":\"…\"}. Chaque champ fait 1 à 2 phrases courtes. 'intro' salue la personne par son nom et donne le jour et l'heure. 'meteo' reste vide s'il n'y a pas de météo ; sinon donne la température actuelle, la minimale, la maximale et le risque de pluie (nombres en chiffres, ex. 23,5 degrés) et un conseil seulement s'il est utile. 'agenda' résume fidèlement les rendez-vous, ou dit que la journée est libre en s'adressant à la personne avec son appellation. 'conclusion' est une courte phrase chaleureuse et variée." },
+      { role: "system", content: PERSONA + " Tu rédiges le briefing du matin. La salutation, le jour et l'heure sont déjà dits : ne les répète pas. Réponds uniquement en JSON : {\"meteo\":\"…\",\"agenda\":\"…\",\"conclusion\":\"…\"}. Chaque champ fait 1 à 2 phrases courtes. 'meteo' reste vide s'il n'y a pas de météo ; sinon donne la température actuelle, la minimale, la maximale et le risque de pluie (nombres en chiffres, ex. 23,5 degrés) et un conseil seulement s'il est utile. 'agenda' résume fidèlement les rendez-vous, ou dit que la journée est libre en s'adressant à la personne avec son appellation. 'conclusion' est une courte phrase chaleureuse et variée." },
       { role: "user", content: JSON.stringify(data) },
     ],
   }, 10000);
@@ -534,34 +617,40 @@ async function briefing() {
   stopSpeaking();
   setState("thinking");
   try {
-    const wx = await getWeather().catch((e) => { console.warn(e); return null; });
     const hide = settings.private && face.identity === "unknown";
     const today = hide ? null : eventsFor(isoDay());
     const name = face.identity === "unknown" ? "" : who();
-    let txt = {
-      intro: `${greeting()}${name ? " " + name : ""}. Nous sommes ${longDate()}, et il est ${spokenTime()}.`,
-      meteo: wx ? weatherText(wx) : "",
-      agenda: agendaText(today),
-      conclusion: ["Je vous souhaite une excellente journée.", "Je reste à votre disposition.", "Belle journée à vous.", "Tout est prêt, la journée vous appartient."][Math.floor(Math.random() * 4)],
-    };
-    if (hasKey()) {
-      try {
-        const ai = await aiBriefing({
-          nom: name || null, appellation: face.identity === "unknown" ? null : (settings.hon.trim() || null),
-          maintenant: `${greeting()} — ${longDate()}, ${spokenTime()}`,
-          meteo: wx ? { lieu: wx.place, actuelle: wx.temp, ciel: wx.desc, min: wx.min, max: wx.max, risque_pluie_pct: wx.rain, vent_kmh: wx.wind } : null,
-          agenda_du_jour: today === null ? "confidentiel : visage inconnu devant la caméra" : today.map((e) => ({ heure: e.time || null, titre: e.title })),
-        });
-        txt = Object.assign(txt, Object.fromEntries(Object.entries(ai).filter(([, v]) => typeof v === "string")));
-        if (!wx) txt.meteo = "";
-      } catch (e) { console.warn(e); toast(e.message || "IA indisponible — briefing standard."); }
-    }
+    const intro = `${greeting()}${name ? " " + name : ""}. Nous sommes ${longDate()}, et il est ${spokenTime()}.`;
+    // La voix commence tout de suite par la salutation, pendant que la météo et l'IA préparent la suite.
+    const introSeg = { text: intro, card: cardIdentity() };
+    if (neuralOk()) { introSeg.audio = ttsFetch(intro); introSeg.audio.catch(() => {}); }
+    const rest = (async () => {
+      const wx = await getWeather().catch((e) => { console.warn(e); return null; });
+      let txt = {
+        meteo: wx ? weatherText(wx) : "",
+        agenda: agendaText(today),
+        conclusion: ["Je vous souhaite une excellente journée.", "Je reste à votre disposition.", "Belle journée à vous.", "Tout est prêt, la journée vous appartient."][Math.floor(Math.random() * 4)],
+      };
+      if (hasKey()) {
+        try {
+          const ai = await aiBriefing({
+            nom: name || null, appellation: face.identity === "unknown" ? null : (settings.hon.trim() || null),
+            maintenant: `${greeting()} — ${longDate()}, ${spokenTime()}`,
+            meteo: wx ? { lieu: wx.place, actuelle: wx.temp, ciel: wx.desc, min: wx.min, max: wx.max, risque_pluie_pct: wx.rain, vent_kmh: wx.wind } : null,
+            agenda_du_jour: today === null ? "confidentiel : visage inconnu devant la caméra" : today.map((e) => ({ heure: e.time || null, titre: e.title })),
+          });
+          for (const k of ["meteo", "agenda", "conclusion"]) if (typeof ai[k] === "string" && ai[k].trim()) txt[k] = ai[k];
+          if (!wx) txt.meteo = "";
+        } catch (e) { console.warn(e); toast(e.message || "IA indisponible — briefing standard."); }
+      }
+      return { wx, txt };
+    })();
     store.set("lastBrief", isoDay());
     await speakSegments([
-      { text: txt.intro, card: cardIdentity() },
-      wx && { text: txt.meteo, card: cardWeather(wx) },
-      { text: txt.agenda, card: cardAgenda(today) },
-      { text: txt.conclusion },
+      introSeg,
+      rest.then(({ wx, txt }) => wx && { text: txt.meteo, card: cardWeather(wx) }),
+      rest.then(({ txt }) => ({ text: txt.agenda, card: cardAgenda(today) })),
+      rest.then(({ txt }) => ({ text: txt.conclusion })),
     ]);
   } finally {
     busy = false;
@@ -621,7 +710,7 @@ async function answer(q) {
     else if (/quel jour|quelle date|on est quel|date d'aujourd'hui/.test(n)) text = `Nous sommes ${longDate()}.`;
     else if (/^merci/.test(n)) text = `Avec plaisir${h ? ", " + h : ""}.`;
     else if (/qui es[- ]tu|tu es qui|presente[- ]toi/.test(n)) text = "Je suis NOVA, votre assistant personnel. Dites bonjour pour votre briefing, ou demandez-moi la météo, l'heure ou votre agenda.";
-    else text = "Pour converser librement, ajoutez une clé Groq gratuite dans mes réglages. En attendant, je peux vous donner l'heure, la météo et votre agenda.";
+    else text = "Pour converser librement, ajoutez une clé Google Gemini gratuite dans mes réglages. En attendant, je peux vous donner l'heure, la météo et votre agenda.";
     await speakSegments([{ text }]);
   } finally {
     busy = false;
@@ -777,7 +866,7 @@ function bindSettings() {
   };
   bind("#s-name", "name"); bind("#s-hon", "hon");
   bind("#s-city", "city", "value", () => { wxCache = null; store.del("place"); });
-  bind("#s-key", "key", "value", () => { neuralFailed = false; groqModel = null; });
+  bind("#s-key", "key", "value", () => { neuralFailedAt = 0; groqModel = null; });
   const bv = $("#s-bvoice");
   const fillVoices = () => {
     if (!("speechSynthesis" in window)) return;
@@ -789,7 +878,9 @@ function bindSettings() {
   fillVoices();
   if ("speechSynthesis" in window) speechSynthesis.addEventListener("voiceschanged", fillVoices);
   bv.addEventListener("change", () => { settings.browserVoice = bv.value; saveSettings(); });
-  bind("#s-voice", "voice", "value", () => { neuralFailed = false; });
+  bind("#s-voice", "voice", "value", () => { neuralFailedAt = 0; });
+  bind("#s-gkey", "gkey", "value", () => { neuralFailedAt = 0; delete gemCache.tts; delete gemCache.chat; });
+  bind("#s-gvoice", "gvoice", "value", () => { neuralFailedAt = 0; });
   bind("#s-auto", "autoBrief", "checked"); bind("#s-private", "private", "checked");
   $("#ev-date").value = isoDay();
   $("#ev-add").onclick = () => {

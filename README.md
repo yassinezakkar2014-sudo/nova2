@@ -11,7 +11,12 @@ Assistant personnel vocal dans le navigateur : il te reconnaît par la caméra, 
    - « Nova, qu'est-ce que j'ai demain ? »
    - « Nova, ajoute dentiste demain à 15 h à mon agenda »
 
-## Gratuit : intelligence avec Groq
+## Gratuit et recommandé : Google Gemini (voix naturelle + intelligence)
+Crée une clé gratuite sur https://aistudio.google.com/apikey et colle-la (AIza…) dans les réglages, champ « Clé Google Gemini ».
+NOVA parle alors avec une voix neuronale fluide en français (8 voix au choix) et peut converser.
+Le quota gratuit est limité : s'il est atteint, NOVA passe une minute sur la voix de l'appareil puis revient.
+
+## Gratuit aussi : intelligence avec Groq
 Crée une clé gratuite sur https://console.groq.com/keys et colle-la (gsk_…) dans les réglages :
 conversation libre et briefing rédigé par l'IA, avec la voix de l'appareil.
 
