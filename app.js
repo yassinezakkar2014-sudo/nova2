@@ -670,6 +670,11 @@ async function answer(q) {
     if (!n.trim()) { await speakSegments([{ text: `Oui${h ? ", " + h : ""} ?` }]); return; }
 
     if (/^(stop|silence|tais[- ]toi|chut|merci c'est tout|c'est tout)\b/.test(n)) { convoUntil = 0; return; }
+    if (/^(t'?es la|tu es la|t'?es ou|tu m'?entends|tu es reveille|t'?es reveille|reveille[- ]toi|es[- ]tu la|t la)\b/.test(n.replace(/[?!.,]/g, "").trim())) {
+      const r = [`Oui${h ? ", " + h : ""}, je suis là. Je vous écoute.`, `Toujours là${h ? ", " + h : ""}. Que puis-je faire pour vous ?`, `Je suis là${h ? ", " + h : ""}. Dites-moi tout.`];
+      await speakSegments([{ text: r[Math.floor(Math.random() * r.length)] }]);
+      return;
+    }
 
     const add = parseAgenda(q);
     if (add) {
